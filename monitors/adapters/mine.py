@@ -5,190 +5,359 @@ from adapter import Solver, dist_table
 
 class MySolver(Solver):
     def solve(self, instance, submit_candidate):
+        start_time = time.perf_counter()
+
         table = dist_table(instance)
         weights = instance.weights
-        k = instance.k
+        n = instance.size
         m = len(instance.sites)
+        k = instance.k
         penalty = instance.penalty
 
-        def objective(sites):
-            return sum(w * min(row[s] for s in sites)
-                       for w, row in zip(weights, table))
+        best_global_cost = None
+        best_global_sites = None
 
-        def greedy_from(start_site):
-            sites = [start_site]
-            current = [row[start_site] for row in table]
-            closed = set(range(m))
-            closed.remove(start_site)
-            while len(sites) < k:
-                best_site = min(
-                    closed,
-                    key=lambda s: sum(w * min(nearest, row[s])
-                                      for w, nearest, row in zip(weights, current, table)),
-                )
-                sites.append(best_site)
-                closed.remove(best_site)
-                current = [min(nearest, row[best_site])
-                           for nearest, row in zip(current, table)]
-            return sites
+        # ---------------------------------------------------------
+        # EXACT COST
+        # ---------------------------------------------------------
+        def calculate_cost(sites):
+            total = 0
 
-        # Ensure a valid plan exists before the first checkpoint.
-        receipt = submit_candidate({"sites": list(range(k))})
+            for i in range(n):
+                nearest = penalty
+                row = table[i]
 
-        first_site = min(
-            range(m),
-            key=lambda s: sum(w * row[s] for w, row in zip(weights, table)),
-        )
-        opened = greedy_from(first_site)
+                for s in sites:
+                    d = row[s]
 
-        receipt = submit_candidate({"sites": list(opened)})
-        deadline = time.monotonic() + max(0.0, receipt["remaining_s"] - 1.0)
-        best_cost = objective(opened)
-        restart_seconds = 1.5 if k <= 8 else 0.45
-        restart_deadline = min(deadline, time.monotonic() + restart_seconds)
-        for start_site in range(m):
-            if time.monotonic() >= restart_deadline:
-                break
-            candidate = greedy_from(start_site)
-            candidate_cost = objective(candidate)
-            if candidate_cost < best_cost:
-                opened = candidate
-                best_cost = candidate_cost
-                receipt = submit_candidate({"sites": list(opened)})
+                    if d < nearest:
+                        nearest = d
 
-        while time.monotonic() < deadline:
-            nearest = []
-            second = []
-            for row in table:
-                ranked = sorted((row[s], s) for s in opened)
-                nearest.append(ranked[0][0])
-                second.append(ranked[1][0] if len(ranked) > 1 else penalty)
-            current_cost = sum(w * d for w, d in zip(weights, nearest))
-            best_move = None
-            best_cost = current_cost
-            opened_set = set(opened)
-            swap_options = [[] for _ in opened]
-            for pos, old_site in enumerate(opened):
-                for candidate in range(m):
-                    if candidate in opened_set:
+                total += weights[i] * nearest
+
+            return total
+
+        # ---------------------------------------------------------
+        # GREEDY CONSTRUCTION
+        # ---------------------------------------------------------
+        def greedy_from_seed(seed):
+            opened = [seed]
+            opened_set = {seed}
+
+            best = [table[i][seed] for i in range(n)]
+
+            while len(opened) < k:
+                best_site = -1
+                best_gain = -1
+
+                for s in range(m):
+                    if s in opened_set:
                         continue
-                    score = sum(
-                        w * min(second[i] if nearest[i] == table[i][old_site]
-                                else nearest[i], row[candidate])
-                        for i, (w, row) in enumerate(zip(weights, table))
-                    )
-                    swap_options[pos].append((score, candidate))
-                    if score < best_cost:
-                        best_cost = score
-                        best_move = (pos, candidate)
-            if best_move is None:
-                best_pair = None
-                best_pair_cost = current_cost
-                shortlist_size = 20 if k <= 8 else 12 if k <= 12 else 6
-                timed_out = False
-                for pos_a in range(len(opened)):
-                    if time.monotonic() >= deadline:
-                        timed_out = True
-                        break
-                    for pos_b in range(pos_a + 1, len(opened)):
-                        if time.monotonic() >= deadline:
-                            timed_out = True
-                            break
-                        remaining = [
-                            min(
-                                (row[s] for i, s in enumerate(opened)
-                                 if i != pos_a and i != pos_b),
-                                default=penalty,
-                            )
-                            for row in table
-                        ]
-                        for _, candidate_a in sorted(swap_options[pos_a])[:shortlist_size]:
-                            for _, candidate_b in sorted(swap_options[pos_b])[:shortlist_size]:
-                                if time.monotonic() >= deadline:
-                                    timed_out = True
-                                    break
-                                if candidate_a == candidate_b:
-                                    continue
-                                score = 0
-                                for w, base, row in zip(weights, remaining, table):
-                                    score += w * min(base, row[candidate_a],
-                                                     row[candidate_b])
-                                if score < best_pair_cost:
-                                    best_pair_cost = score
-                                    best_pair = (pos_a, pos_b, candidate_a, candidate_b)
-                            if timed_out:
-                                break
-                        if timed_out:
-                            break
-                    if timed_out:
-                        break
-                if best_pair is None:
-                    best_triple = None
-                    best_triple_cost = current_cost
-                    if k <= 8 and not timed_out:
-                        triple_options = [
-                            sorted(options)[:8] for options in swap_options
-                        ]
-                        for pos_a in range(len(opened)):
-                            if time.monotonic() >= deadline:
-                                timed_out = True
-                                break
-                            for pos_b in range(pos_a + 1, len(opened)):
-                                for pos_c in range(pos_b + 1, len(opened)):
-                                    if time.monotonic() >= deadline:
-                                        timed_out = True
-                                        break
-                                    remaining = [
-                                        min(
-                                            (row[s] for i, s in enumerate(opened)
-                                             if i not in (pos_a, pos_b, pos_c)),
-                                            default=penalty,
-                                        )
-                                        for row in table
-                                    ]
-                                    for _, candidate_a in triple_options[pos_a]:
-                                        for _, candidate_b in triple_options[pos_b]:
-                                            if candidate_a == candidate_b:
-                                                continue
-                                            for _, candidate_c in triple_options[pos_c]:
-                                                if time.monotonic() >= deadline:
-                                                    timed_out = True
-                                                    break
-                                                if candidate_c in (candidate_a, candidate_b):
-                                                    continue
-                                                score = sum(
-                                                    w * min(base, row[candidate_a],
-                                                            row[candidate_b], row[candidate_c])
-                                                    for w, base, row in zip(weights, remaining, table)
-                                                )
-                                                if score < best_triple_cost:
-                                                    best_triple_cost = score
-                                                    best_triple = (
-                                                        pos_a, pos_b, pos_c,
-                                                        candidate_a, candidate_b, candidate_c,
-                                                    )
-                                            if timed_out:
-                                                break
-                                        if timed_out:
-                                            break
-                                    if timed_out:
-                                        break
-                                if timed_out:
-                                    break
-                            if timed_out:
-                                break
-                    if best_triple is None:
-                        break
-                    pos_a, pos_b, pos_c, candidate_a, candidate_b, candidate_c = best_triple
-                    opened[pos_a] = candidate_a
-                    opened[pos_b] = candidate_b
-                    opened[pos_c] = candidate_c
-                else:
-                    pos_a, pos_b, candidate_a, candidate_b = best_pair
-                    opened[pos_a] = candidate_a
-                    opened[pos_b] = candidate_b
-            else:
-                opened[best_move[0]] = best_move[1]
-            receipt = submit_candidate({"sites": list(opened)})
 
-        return {"sites": list(opened)}
+                    gain = 0
+
+                    for i in range(n):
+                        old = best[i]
+                        new = table[i][s]
+
+                        if new < old:
+                            gain += weights[i] * (old - new)
+
+                    if gain > best_gain:
+                        best_gain = gain
+                        best_site = s
+
+                opened.append(best_site)
+                opened_set.add(best_site)
+
+                for i in range(n):
+                    d = table[i][best_site]
+
+                    if d < best[i]:
+                        best[i] = d
+
+            total = sum(weights[i] * best[i] for i in range(n))
+
+            return opened, total
+
+        # ---------------------------------------------------------
+        # 1-FOR-1 LOCAL SEARCH
+        # ---------------------------------------------------------
+        def improve(sites, current_cost):
+            sites = list(sites)
+
+            while time.perf_counter() - start_time < 4.70:
+                selected = set(sites)
+
+                nearest = [penalty] * n
+                second = [penalty] * n
+                nearest_site = [-1] * n
+
+                # Find nearest and second nearest facilities.
+                for i in range(n):
+                    first = penalty
+                    second_best = penalty
+                    first_site = -1
+
+                    row = table[i]
+
+                    for s in sites:
+                        d = row[s]
+
+                        if d < first:
+                            second_best = first
+                            first = d
+                            first_site = s
+
+                        elif d < second_best:
+                            second_best = d
+
+                    nearest[i] = first
+                    second[i] = second_best
+                    nearest_site[i] = first_site
+
+                best_delta = 0
+                best_position = -1
+                best_new_site = -1
+
+                for pos, old_site in enumerate(sites):
+                    for new_site in range(m):
+                        if new_site in selected:
+                            continue
+
+                        delta = 0
+
+                        for i in range(n):
+                            row = table[i]
+
+                            if nearest_site[i] == old_site:
+                                old_distance = second[i]
+                            else:
+                                old_distance = nearest[i]
+
+                            new_distance = row[new_site]
+
+                            if new_distance > old_distance:
+                                new_distance = old_distance
+
+                            delta += weights[i] * (new_distance - nearest[i])
+
+                        if delta < best_delta:
+                            best_delta = delta
+                            best_position = pos
+                            best_new_site = new_site
+
+                    if time.perf_counter() - start_time >= 4.70:
+                        break
+
+                if best_position == -1:
+                    break
+
+                sites[best_position] = best_new_site
+                current_cost += best_delta
+
+                yield list(sites), current_cost
+
+        # ---------------------------------------------------------
+        # 2-FACILITY DESTROY + REBUILD
+        #
+        # Removes two selected facilities and greedily rebuilds
+        # both. This can escape a 1-swap local optimum.
+        # ---------------------------------------------------------
+        def rebuild_two(sites):
+            original = list(sites)
+
+            best_result = list(sites)
+            best_result_cost = calculate_cost(sites)
+
+            for a in range(k):
+                if time.perf_counter() - start_time >= 4.70:
+                    break
+
+                for b in range(a + 1, k):
+                    if time.perf_counter() - start_time >= 4.70:
+                        break
+
+                    remaining = []
+
+                    for p in range(k):
+                        if p != a and p != b:
+                            remaining.append(original[p])
+
+                    used = set(remaining)
+
+                    nearest = [penalty] * n
+
+                    for i in range(n):
+                        row = table[i]
+                        best_distance = penalty
+
+                        for s in remaining:
+                            d = row[s]
+
+                            if d < best_distance:
+                                best_distance = d
+
+                        nearest[i] = best_distance
+
+                    for _ in range(2):
+                        best_site = -1
+                        best_gain = -1
+
+                        for s in range(m):
+                            if s in used:
+                                continue
+
+                            gain = 0
+
+                            for i in range(n):
+                                old = nearest[i]
+                                new = table[i][s]
+
+                                if new < old:
+                                    gain += weights[i] * (old - new)
+
+                            if gain > best_gain:
+                                best_gain = gain
+                                best_site = s
+
+                        if best_site == -1:
+                            break
+
+                        remaining.append(best_site)
+                        used.add(best_site)
+
+                        for i in range(n):
+                            d = table[i][best_site]
+
+                            if d < nearest[i]:
+                                nearest[i] = d
+
+                    new_cost = sum(weights[i] * nearest[i] for i in range(n))
+
+                    if new_cost < best_result_cost:
+                        best_result_cost = new_cost
+                        best_result = list(remaining)
+
+            return best_result, best_result_cost
+
+        # ---------------------------------------------------------
+        # RANK ALL POSSIBLE SINGLE STARTS
+        # ---------------------------------------------------------
+        single_scores = []
+
+        for s in range(m):
+            single_cost = 0
+
+            for i in range(n):
+                single_cost += weights[i] * table[i][s]
+
+            single_scores.append((single_cost, s))
+
+        single_scores.sort()
+
+        # ---------------------------------------------------------
+        # FIRST CANDIDATE
+        #
+        # Submit as early as possible.
+        # ---------------------------------------------------------
+        initial_sites, initial_cost = greedy_from_seed(single_scores[0][1])
+
+        submit_candidate({"sites": list(initial_sites)})
+
+        best_global_sites = list(initial_sites)
+        best_global_cost = calculate_cost(initial_sites)
+
+        # ---------------------------------------------------------
+        # DETERMINISTIC DIVERSE SEEDS
+        # ---------------------------------------------------------
+        seeds = []
+
+        # Best 3
+        for i in range(min(3, len(single_scores))):
+            seeds.append(single_scores[i][1])
+
+        # 25th percentile
+        if len(single_scores) > 3:
+            seeds.append(single_scores[len(single_scores) // 4][1])
+
+        # Median
+        if len(single_scores) > 6:
+            seeds.append(single_scores[len(single_scores) // 2][1])
+
+        # Worst
+        if len(single_scores) > 10:
+            seeds.append(single_scores[-1][1])
+
+        unique_seeds = []
+
+        for seed in seeds:
+            if seed not in unique_seeds:
+                unique_seeds.append(seed)
+
+        # ---------------------------------------------------------
+        # MULTI-START SEARCH
+        # ---------------------------------------------------------
+        for seed in unique_seeds:
+            if time.perf_counter() - start_time >= 4.70:
+                break
+
+            sites, current_cost = greedy_from_seed(seed)
+
+            # -----------------------------------------------------
+            # NORMAL 1-SWAP IMPROVEMENT
+            # -----------------------------------------------------
+            for improved_sites, improved_cost in improve(sites, current_cost):
+                if improved_cost < best_global_cost:
+                    best_global_cost = improved_cost
+                    best_global_sites = list(improved_sites)
+                    submit_candidate({"sites": list(best_global_sites)})
+
+                if time.perf_counter() - start_time >= 4.70:
+                    break
+
+            if time.perf_counter() - start_time >= 4.70:
+                break
+
+            # -----------------------------------------------------
+            # CHECK FINAL LOCAL-SEARCH SOLUTION
+            # -----------------------------------------------------
+            final_cost = calculate_cost(sites)
+
+            if final_cost < best_global_cost:
+                best_global_cost = final_cost
+                best_global_sites = list(sites)
+                submit_candidate({"sites": list(best_global_sites)})
+
+            if time.perf_counter() - start_time >= 4.70:
+                break
+
+            # -----------------------------------------------------
+            # 2-FACILITY DESTROY + REBUILD
+            # -----------------------------------------------------
+            rebuilt_sites, rebuilt_cost = rebuild_two(best_global_sites)
+
+            if rebuilt_cost < best_global_cost:
+                best_global_cost = rebuilt_cost
+                best_global_sites = list(rebuilt_sites)
+                submit_candidate({"sites": list(best_global_sites)})
+
+            if time.perf_counter() - start_time >= 4.70:
+                break
+
+            # -----------------------------------------------------
+            # RUN 1-SWAP AGAIN AFTER REBUILD
+            # -----------------------------------------------------
+            for improved_sites, improved_cost in improve(rebuilt_sites, rebuilt_cost):
+                if improved_cost < best_global_cost:
+                    best_global_cost = improved_cost
+                    best_global_sites = list(improved_sites)
+                    submit_candidate({"sites": list(best_global_sites)})
+
+                if time.perf_counter() - start_time >= 4.70:
+                    break
+
+        # ---------------------------------------------------------
+        # FINAL
+        # ---------------------------------------------------------
+        return {"sites": list(best_global_sites)}
