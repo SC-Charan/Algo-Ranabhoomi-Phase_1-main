@@ -1,0 +1,154 @@
+{
+ "budgets": {
+  "relief-01": 5.0,
+  "relief-02": 5.0,
+  "relief-03": 5.0,
+  "relief-04": 5.0,
+  "relief-05": 5.0,
+  "relief-06": 5.0
+ },
+ "generator_schema": 1,
+ "instances": {
+  "relief-01": {
+   "baseline_costs": [
+    11241,
+    11241,
+    11241,
+    11241
+   ],
+   "digest": "f8502dae404bd9df",
+   "family": "independent",
+   "reference_cost": 10644,
+   "shifted": false,
+   "spreads": {
+    "baseline": 0,
+    "reference": 0,
+    "starter": 0
+   },
+   "starter_costs": [
+    13613,
+    13613,
+    13613,
+    13613
+   ]
+  },
+  "relief-02": {
+   "baseline_costs": [
+    26060,
+    26060,
+    26060,
+    26060
+   ],
+   "digest": "030ed1aba0075924",
+   "family": "independent",
+   "reference_cost": 24918,
+   "shifted": false,
+   "spreads": {
+    "baseline": 0,
+    "reference": 0,
+    "starter": 0
+   },
+   "starter_costs": [
+    33498,
+    33498,
+    33498,
+    33498
+   ]
+  },
+  "relief-03": {
+   "baseline_costs": [
+    34097,
+    34097,
+    34097,
+    34097
+   ],
+   "digest": "aff94179c1dc80ad",
+   "family": "independent",
+   "reference_cost": 32649,
+   "shifted": false,
+   "spreads": {
+    "baseline": 0,
+    "reference": 6,
+    "starter": 0
+   },
+   "starter_costs": [
+    42511,
+    42511,
+    42511,
+    42511
+   ]
+  },
+  "relief-04": {
+   "baseline_costs": [
+    47120,
+    47120,
+    47120,
+    47120
+   ],
+   "digest": "335f0c6bee2e0cac",
+   "family": "independent",
+   "reference_cost": 45145,
+   "shifted": false,
+   "spreads": {
+    "baseline": 0,
+    "reference": 0,
+    "starter": 0
+   },
+   "starter_costs": [
+    61442,
+    61442,
+    61442,
+    61442
+   ]
+  },
+  "relief-05": {
+   "baseline_costs": [
+    16826,
+    16826,
+    16826,
+    16826
+   ],
+   "digest": "adaca861ca8a3c76",
+   "family": "anticorrelated",
+   "reference_cost": 15867,
+   "shifted": true,
+   "spreads": {
+    "baseline": 0,
+    "reference": 14,
+    "starter": 0
+   },
+   "starter_costs": [
+    22503,
+    22503,
+    22503,
+    22503
+   ]
+  },
+  "relief-06": {
+   "baseline_costs": [
+    37941,
+    37941,
+    37941,
+    37941
+   ],
+   "digest": "5559e2cb5512c0c5",
+   "family": "anticorrelated",
+   "reference_cost": 35704,
+   "shifted": true,
+   "spreads": {
+    "baseline": 0,
+    "reference": 0,
+    "starter": 0
+   },
+   "starter_costs": [
+    47395,
+    47395,
+    47395,
+    47395
+   ]
+  }
+ },
+ "reference_scale": 10,
+ "repeats": 3,
+ "schema": 1
+}
